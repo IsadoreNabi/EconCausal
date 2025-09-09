@@ -92,7 +92,7 @@ This function implements an Error Correction Model enhanced with Multivariate Ad
 Regression Splines for analyzing cointegration relationships between economic variables.
 It includes comprehensive temporal validation through rolling-origin cross-validation
 and nested tuning for MARS parameters. The methodology is described in detail in the
-methodological document "DETALLES METODOLÓGICOS DE ECM-MARS2.docx".
+methodological document "ECM-MARS METHODOLOGICAL DETAILS.docx" (english version) or "DETALLES METODOLÓGICOS DE ECM-MARS.docx" (spanish version).
 }
 \examples{
 \dontrun{
