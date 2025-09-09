@@ -71,8 +71,7 @@ for assessing causal relationships between economic variables with temporal stab
 This function implements Bayesian Structural Time Series models for assessing
 causal relationships between economic variables. It uses Leave-Future-Out
 cross-validation with tuning between Local Level and Local Linear Trend
-specifications. The methodology is described in detail in the methodological
-document "DETALLES METODOLÓGICOS SPACESTATE MODEL.docx".
+specifications. The methodology is described in detail in the methodological document "BAYESIAN SPACE-STATE METHODOLOGICAL DETAILS.docx" (english version) or "DETALLES METODOLÓGICOS DEL MODELO BAYESIANO ESPACIO-ESTADO".docx" (spanish version)..
 }
 \examples{
 \dontrun{
