@@ -22,5 +22,5 @@ An R package for econometric causal inference with emphasis on temporal stabilit
 
 # Install from GitHub
 
-devtools::install\_github("IsadoreNabi/EconCausal")
+devtools::install_github("IsadoreNabi/EconCausal")
 
