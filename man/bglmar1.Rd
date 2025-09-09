@@ -84,7 +84,7 @@ cross-validation.
 This function implements a Bayesian GLM with AR(1) errors for assessing causal relationships
 between economic variables. It uses Leave-Future-Out cross-validation with sliding windows
 to evaluate temporal stability of relationships. The methodology is described in detail
-in the methodological document "DETALLES METODOLÓGICOS DE BGLM-AR1.docx".
+in the methodological document "BAYESIAN GENERALIZED LINEAR MODELS METHODOLOGICAL DETAILS.docx" (english version) or "DETALLES METODOLÓGICOS DE LOS MODELOS LINEALES GENERALIZADOS BAYESIANOS.docx" (spanish version).
 }
 \examples{
 \dontrun{
