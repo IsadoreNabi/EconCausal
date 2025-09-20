@@ -42,9 +42,9 @@ ecm_mars(
 
 \item{eg_p_cutoff}{Significance level for EG/Phillips-Ouliaris test (default: 0.05)}
 
-\item{ecm_p_cutoff}{Significance level for λ<0 test in linear ECM (default: 0.05)}
+\item{ecm_p_cutoff}{Significance level for lambda<0 test in linear ECM (default: 0.05)}
 
-\item{lag_max_ecm}{Maximum lags in ΔY and ΔX for linear ECM (default: 4)}
+\item{lag_max_ecm}{Maximum lags in DeltaY and DeltaX for linear ECM (default: 4)}
 
 \item{min_tr}{Minimum training rows for MARS (default: 20)}
 
@@ -92,7 +92,7 @@ This function implements an Error Correction Model enhanced with Multivariate Ad
 Regression Splines for analyzing cointegration relationships between economic variables.
 It includes comprehensive temporal validation through rolling-origin cross-validation
 and nested tuning for MARS parameters. The methodology is described in detail in the
-methodological document "ECM-MARS METHODOLOGICAL DETAILS.docx" (english version) or "DETALLES METODOLÓGICOS DE ECM-MARS.docx" (spanish version).
+methodological document "DETALLES METODOLOGICOS DE ECM-MARS2.docx".
 }
 \examples{
 \dontrun{
