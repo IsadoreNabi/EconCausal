@@ -24,7 +24,8 @@ bglmar1(
   support_min = 0.6,
   folds_min = 5,
   sup_hi = 0.7,
-  sup_lo = 0.6
+  sup_lo = 0.6,
+  backend = c("auto", "rstan", "cmdstanr")
 )
 }
 \arguments{
@@ -67,12 +68,15 @@ bglmar1(
 \item{sup_hi}{High support threshold (default: 0.7)}
 
 \item{sup_lo}{Low support threshold (default: 0.6)}
+
+\item{backend}{Backend for Stan compilation: "auto" (default), "rstan", or "cmdstanr".
+If "auto", the function uses 'rstan' when available, otherwise tries 'cmdstanr'.}
 }
 \value{
 A list containing:
 \item{bench_bayes}{Full results for all pairs}
-\item{winners_070}{Pairs with support ≥ 0.70}
-\item{winners_060}{Pairs with support ≥ 0.60}
+\item{winners_070}{Pairs with support >= 0.70}
+\item{winners_060}{Pairs with support >= 0.60}
 \item{rank_out}{Output from ranking function}
 }
 \description{
@@ -83,8 +87,10 @@ cross-validation.
 \details{
 This function implements a Bayesian GLM with AR(1) errors for assessing causal relationships
 between economic variables. It uses Leave-Future-Out cross-validation with sliding windows
-to evaluate temporal stability of relationships. The methodology is described in detail
-in the methodological document "AR(1) BAYESIAN GENERALIZED LINEAR MODELS METHODOLOGICAL DETAILS.docx" (english version) or "DETALLES METODOLÓGICOS DE LOS MODELOS LINEALES GENERALIZADOS BAYESIANOS.docx" (spanish version).
+to evaluate temporal stability of relationships. The function no longer requires 'cmdstanr'
+at install time; if 'backend = "cmdstanr"' is requested but 'cmdstanr' (and a working CmdStan)
+are not available, it gracefully falls back to 'rstan'. In any case, heavy computations are
+not run in package examples or tests.
 }
 \examples{
 \dontrun{
@@ -96,7 +102,8 @@ result <- bglmar1(
   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
                 "RealSocialConsumptionPerWorker2017", "RealWage_PPP2017",
                 "CapitalStock_PPP2017", "LaborProductivity_PPP2017", 
-                "InvestmentPerWorker_PPP2017")
+                "InvestmentPerWorker_PPP2017"),
+  backend = "auto"
 )
 }
 
