@@ -24,18 +24,22 @@
 #' @param folds_min Minimum number of folds required (default: 5)
 #' @param sup_hi High support threshold (default: 0.7)
 #' @param sup_lo Low support threshold (default: 0.6)
+#' @param backend Backend for Stan compilation: "auto" (default), "rstan", or "cmdstanr".
+#'   If "auto", the function uses 'rstan' when available, otherwise tries 'cmdstanr'.
 #'
 #' @return A list containing:
 #' \item{bench_bayes}{Full results for all pairs}
-#' \item{winners_070}{Pairs with support ≥ 0.70}
-#' \item{winners_060}{Pairs with support ≥ 0.60}
+#' \item{winners_070}{Pairs with support >= 0.70}
+#' \item{winners_060}{Pairs with support >= 0.60}
 #' \item{rank_out}{Output from ranking function}
 #'
 #' @details
 #' This function implements a Bayesian GLM with AR(1) errors for assessing causal relationships
 #' between economic variables. It uses Leave-Future-Out cross-validation with sliding windows
-#' to evaluate temporal stability of relationships. The methodology is described in detail
-#' in the methodological document "DETALLES METODOLÓGICOS DE BGLM-AR1.docx".
+#' to evaluate temporal stability of relationships. The function no longer requires 'cmdstanr'
+#' at install time; if 'backend = "cmdstanr"' is requested but 'cmdstanr' (and a working CmdStan)
+#' are not available, it gracefully falls back to 'rstan'. In any case, heavy computations are
+#' not run in package examples or tests.
 #'
 #' @examples
 #' \dontrun{
@@ -47,7 +51,8 @@
 #'   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
 #'                 "RealSocialConsumptionPerWorker2017", "RealWage_PPP2017",
 #'                 "CapitalStock_PPP2017", "LaborProductivity_PPP2017", 
-#'                 "InvestmentPerWorker_PPP2017")
+#'                 "InvestmentPerWorker_PPP2017"),
+#'   backend = "auto"
 #' )
 #' }
 #'
@@ -56,32 +61,42 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
                     initial_min = 90, test_h = 12, step_h = 12, lfo_window = "sliding",
                     chains = 4, parallel_chains = 4, iter = 1500, warmup = 750,
                     adapt_delta = 0.95, trees = 12, seed = 2025, support_min = 0.6,
-                    folds_min = 5, sup_hi = 0.7, sup_lo = 0.6) {
+                    folds_min = 5, sup_hi = 0.7, sup_lo = 0.6, backend = c("auto","rstan","cmdstanr")) {
   
-  # Load required packages
-  suppressPackageStartupMessages({
-    library(dplyr)
-    library(tidyr)
-    library(purrr)
-    library(lubridate)
-    library(brms)
-    library(cmdstanr)
-    library(plotly)
-    library(readxl)
-  })
-  
-  # Verify cmdstan installation
-  if (is.null(cmdstanr::cmdstan_version(error_on_NA = FALSE))) {
-    stop("CmdStan not found. Please install using cmdstanr::install_cmdstan()")
+  backend <- match.arg(backend)
+  pick_backend <- function(pref = "auto") {
+    # user preference via option takes precedence
+    opt <- getOption("EconCausal.backend", NA_character_)
+    if (!is.na(opt)) pref <- opt
+    
+    if (identical(pref, "cmdstanr")) {
+      if (requireNamespace("cmdstanr", quietly = TRUE)) {
+        ver <- try(cmdstanr::cmdstan_version(error_on_NA = FALSE), silent = TRUE)
+        if (!inherits(ver, "try-error") && !is.null(ver)) return("cmdstanr")
+      }
+      message("EconCausal: 'cmdstanr' not available; trying 'rstan'.")
+      pref <- "rstan"
+    }
+    if (identical(pref, "rstan") || identical(pref, "auto")) {
+      if (requireNamespace("rstan", quietly = TRUE)) return("rstan")
+    }
+    if (!identical(pref, "cmdstanr")) {
+      if (requireNamespace("cmdstanr", quietly = TRUE)) {
+        ver <- try(cmdstanr::cmdstan_version(error_on_NA = FALSE), silent = TRUE)
+        if (!inherits(ver, "try-error") && !is.null(ver)) return("cmdstanr")
+      }
+    }
+    stop("Neither 'rstan' nor 'cmdstanr' is available. Please install one of them to fit models.")
   }
+  backend_used <- pick_backend(backend)
   
-  # Set execution preferences
+  # Set execution preferences (no effect during CRAN checks; examples are \\dontrun)
   options(mc.cores = parallel::detectCores())
   options(scipen = 0)
   
   # Load data
   if (!exists("DATA")) {
-    DATA <- read_excel(data_path)
+    DATA <- readxl::read_excel(data_path)
   }
   
   # Clean variable names
@@ -94,7 +109,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     nm
   }
   
-  DATA <- DATA %>% rename_with(simple_name)
+  DATA <- DATA %>% dplyr::rename_with(simple_name)
   
   # Ensure Month column exists and create time index
   if (!"Month" %in% names(DATA)) {
@@ -103,7 +118,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     names(DATA)[match(time_candidates[1], names(DATA))] <- "Month"
   }
   
-  DATA <- DATA %>% arrange(Month) %>% mutate(time_idx = dplyr::row_number())
+  DATA <- DATA %>% dplyr::arrange(.data$Month) %>% dplyr::mutate(time_idx = dplyr::row_number())
   
   # Check if we have the expected number of variables
   present <- setdiff(names(DATA), "Month")
@@ -164,14 +179,14 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   
   # Prepare base frame with temporal index
   df <- DATA %>%
-    arrange(Month) %>%
-    mutate(t_index = seq_len(n()))
+    dplyr::arrange(.data$Month) %>%
+    dplyr::mutate(t_index = seq_len(n()))
   
   # Priors for standardized scale (Y_s ~ N(0,1))
   pri <- c(
-    set_prior("normal(0, 1)",         class = "b"),
-    set_prior("student_t(3, 0, 2.5)", class = "Intercept"),
-    set_prior("exponential(1)",       class = "sigma")
+    brms::set_prior("normal(0, 1)",         class = "b"),
+    brms::set_prior("student_t(3, 0, 2.5)", class = "Intercept"),
+    brms::set_prior("exponential(1)",       class = "sigma")
   )
   
   # Main loop over pairs with LFO
@@ -183,18 +198,18 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     
     # Frame for the pair + lags of X
     dat0 <- df %>%
-      select(Month, t_index, all_of(c(Ynm, Xnm))) %>%
-      rename(Y = !!Ynm, X = !!Xnm) %>%
-      mutate(across(c(Y, X), as.numeric))
+      dplyr::select(.data$Month, .data$t_index, dplyr::all_of(c(Ynm, Xnm))) %>%
+      dplyr::rename(Y = !!Ynm, X = !!Xnm) %>%
+      dplyr::mutate(dplyr::across(c(.data$Y, .data$X), as.numeric))
     
     dat <- dat0 %>%
-      bind_cols(make_lags(dat0$X, max_lag)) %>%
-      drop_na()
+      dplyr::bind_cols(make_lags(dat0$X, max_lag)) %>%
+      tidyr::drop_na()
     
     n <- nrow(dat)
     # Need space after lags for first window + test
     if (n < (initial_min + test_h + max_lag + 5)) {
-      res_list[[pp]] <- tibble(
+      res_list[[pp]] <- tibble::tibble(
         pair = paste0(Xnm, " -> ", Ynm),
         folds = 0, folds_pass = 0, support = NA_real_,
         ELPD_diff_mean = NA_real_, RMSE_diff_mean = NA_real_,
@@ -210,7 +225,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     splits  <- make_splits(n, initial, test_h, step_h, window = lfo_window)
     
     if (length(splits) == 0L) {
-      res_list[[pp]] <- tibble(
+      res_list[[pp]] <- tibble::tibble(
         pair = paste0(Xnm, " -> ", Ynm),
         folds = 0, folds_pass = 0, support = NA_real_,
         ELPD_diff_mean = NA_real_, RMSE_diff_mean = NA_real_,
@@ -236,7 +251,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       test  <- dat[sp$test,  , drop = FALSE]
       
       # Standardization by fold (critical for NUTS)
-      mu_y <- mean(train$Y); sd_y <- sd(train$Y)
+      mu_y <- mean(train$Y); sd_y <- stats::sd(train$Y)
       if (!is.finite(sd_y) || sd_y <= .Machine$double.eps) {
         next
       }
@@ -244,7 +259,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       test$Y_s  <- (test$Y  - mu_y) / sd_y
       
       # Scale time (centered near 0, reasonable range)
-      t_mu <- mean(train$t_index); t_sd <- sd(train$t_index)
+      t_mu <- mean(train$t_index); t_sd <- stats::sd(train$t_index)
       if (!is.finite(t_sd) || t_sd <= .Machine$double.eps) t_sd <- 1
       train$t_s <- (train$t_index - t_mu) / t_sd
       test$t_s  <- (test$t_index  - t_mu) / t_sd
@@ -253,7 +268,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       x_lag_names <- paste0("X_l", 1:max_lag)
       for (nm in x_lag_names) {
         mu_x <- mean(train[[nm]], na.rm = TRUE)
-        sd_x <- sd(train[[nm]], na.rm = TRUE)
+        sd_x <- stats::sd(train[[nm]], na.rm = TRUE)
         if (!is.finite(sd_x) || sd_x <= .Machine$double.eps) {
           train[[nm]] <- NULL; test[[nm]] <- NULL
         } else {
@@ -268,32 +283,32 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       test$series  <- factor("one")
       
       # brms formulas (AR1)
-      f_base <- bf(
+      f_base <- brms::bf(
         Y_s ~ 1 + t_s,
-        autocor = cor_ar(~ t_index | series, p = 1)
+        autocor = brms::cor_ar(~ t_index | series, p = 1)
       )
       rhs <- paste(c("1", "t_s", x_lag_used), collapse = " + ")
-      f_full <- bf(
-        as.formula(paste("Y_s ~", rhs)),
-        autocor = cor_ar(~ t_index | series, p = 1)
+      f_full <- brms::bf(
+        stats::as.formula(paste("Y_s ~", rhs)),
+        autocor = brms::cor_ar(~ t_index | series, p = 1)
       )
       
-      # Model fitting (cmdstanr backend; no threading within chain)
+      # Model fitting with selected backend
       m_base <- tryCatch(
-        brm(
-          formula = f_base, data = train, family = gaussian(), prior = pri,
+        brms::brm(
+          formula = f_base, data = train, family = stats::gaussian(), prior = pri,
           chains = chains, iter = iter, warmup = warmup, seed = seed + 101,
-          backend = "cmdstanr", refresh = 50,
+          backend = backend_used, refresh = 50,
           cores = parallel_chains,
           control = list(adapt_delta = adapt_delta, max_treedepth = trees)
         ),
         error = function(e) NULL
       )
       m_full <- tryCatch(
-        brm(
-          formula = f_full, data = train, family = gaussian(), prior = pri,
+        brms::brm(
+          formula = f_full, data = train, family = stats::gaussian(), prior = pri,
           chains = chains, iter = iter, warmup = warmup, seed = seed + 202,
-          backend = "cmdstanr", refresh = 50,
+          backend = backend_used, refresh = 50,
           cores = parallel_chains,
           control = list(adapt_delta = adapt_delta, max_treedepth = trees)
         ),
@@ -302,8 +317,8 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       if (is.null(m_base) || is.null(m_full)) next
       
       # ELPD fold (NEW DATA)
-      ll_base <- tryCatch(log_lik(m_base, newdata = test, re_formula = NA), error = function(e) NULL)
-      ll_full <- tryCatch(log_lik(m_full, newdata = test, re_formula = NA), error = function(e) NULL)
+      ll_base <- tryCatch(brms::log_lik(m_base, newdata = test, re_formula = NA), error = function(e) NULL)
+      ll_full <- tryCatch(brms::log_lik(m_full, newdata = test, re_formula = NA), error = function(e) NULL)
       if (is.null(ll_base) || is.null(ll_full)) {
         next
       }
@@ -312,8 +327,8 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       elpd_diff <- elpd_full - elpd_base
       
       # OOS predictions (posterior mean) and metrics in original scale
-      ep_base <- posterior_epred(m_base, newdata = test, re_formula = NA)
-      ep_full <- posterior_epred(m_full, newdata = test, re_formula = NA)
+      ep_base <- brms::posterior_epred(m_base, newdata = test, re_formula = NA)
+      ep_full <- brms::posterior_epred(m_full, newdata = test, re_formula = NA)
       yhat_base <- colMeans(ep_base) * sd_y + mu_y
       yhat_full <- colMeans(ep_full) * sd_y + mu_y
       
@@ -347,7 +362,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     
     folds <- length(wins)
     if (folds == 0L) {
-      res_list[[pp]] <- tibble(
+      res_list[[pp]] <- tibble::tibble(
         pair = paste0(Xnm, " -> ", Ynm),
         folds = 0, folds_pass = 0, support = NA_real_,
         ELPD_diff_mean = NA_real_, RMSE_diff_mean = NA_real_,
@@ -359,7 +374,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     } else {
       folds_pass <- sum(wins, na.rm = TRUE)
       support    <- folds_pass / folds
-      res_list[[pp]] <- tibble(
+      res_list[[pp]] <- tibble::tibble(
         pair = paste0(Xnm, " -> ", Ynm),
         folds = folds, folds_pass = folds_pass, support = support,
         ELPD_diff_mean = if (length(elpd_diffs)) mean(elpd_diffs, na.rm = TRUE) else NA_real_,
@@ -376,8 +391,8 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     }
   }
   
-  bench_bayes <- bind_rows(res_list) %>%
-    arrange(desc(support), desc(ELPD_diff_mean), RMSE_diff_mean)
+  bench_bayes <- dplyr::bind_rows(res_list) %>%
+    dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
   
   # Ranking function
   rank_bglm_results <- function(bench = bench_bayes,
@@ -388,31 +403,31 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
                                 out_lo  = "bglm_winners_sup60.csv") {
     
     top_all <- bench %>%
-      arrange(desc(support), desc(ELPD_diff_mean), RMSE_diff_mean)
+      dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
     
     winners_hi <- bench %>%
-      filter(folds >= min_folds, is.finite(support), support >= sup_hi,
-             ELPD_diff_mean > 0, RMSE_diff_mean < 0) %>%
-      arrange(desc(support), desc(ELPD_diff_mean), RMSE_diff_mean)
+      dplyr::filter(.data$folds >= min_folds, is.finite(.data$support), .data$support >= sup_hi,
+             .data$ELPD_diff_mean > 0, .data$RMSE_diff_mean < 0) %>%
+      dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
     
     winners_lo <- bench %>%
-      filter(folds >= min_folds, is.finite(support), support >= sup_lo,
-             ELPD_diff_mean > 0, RMSE_diff_mean < 0) %>%
-      arrange(desc(support), desc(ELPD_diff_mean), RMSE_diff_mean)
+      dplyr::filter(.data$folds >= min_folds, is.finite(.data$support), .data$support >= sup_lo,
+             .data$ELPD_diff_mean > 0, .data$RMSE_diff_mean < 0) %>%
+      dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
     
     # Useful ratios
     bench_ratios <- bench %>%
-      mutate(
-        RMSE_ratio = RMSE_full_mean / RMSE_base_mean,
-        MAE_ratio  = MAE_full_mean  / MAE_base_mean
+      dplyr::mutate(
+        RMSE_ratio = .data$RMSE_full_mean / .data$RMSE_base_mean,
+        MAE_ratio  = .data$MAE_full_mean  / .data$MAE_base_mean
       ) %>%
-      arrange(RMSE_ratio) %>%
-      select(pair, support, ELPD_diff_mean, RMSE_diff_mean, RMSE_ratio, MAE_ratio)
+      dplyr::arrange(.data$RMSE_ratio) %>%
+      dplyr::select(.data$pair, .data$support, .data$ELPD_diff_mean, .data$RMSE_diff_mean, .data$RMSE_ratio, .data$MAE_ratio)
     
     # Export
-    write.csv(top_all,    out_all, row.names = FALSE)
-    write.csv(winners_hi, out_hi,  row.names = FALSE)
-    write.csv(winners_lo, out_lo,  row.names = FALSE)
+    utils::write.csv(top_all,    out_all, row.names = FALSE)
+    utils::write.csv(winners_hi, out_hi,  row.names = FALSE)
+    utils::write.csv(winners_lo, out_lo,  row.names = FALSE)
     
     invisible(list(all = top_all, winners_hi = winners_hi, winners_lo = winners_lo, ratios = bench_ratios))
   }
