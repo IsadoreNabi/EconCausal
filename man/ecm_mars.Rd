@@ -98,7 +98,7 @@ methodological document "DETALLES METODOLOGICOS DE ECM-MARS2.docx".
 \dontrun{
 # Example usage
 result <- ecm_mars(
-  data_path = "path/to/data.xlsx",
+  data_path = file.path(tempdir(), "data.xlsx"),
   circ_vars = c("ER.SPOT.CAN.US", "ER.SPOT.US.CAN", "ER.SPOT.US.REMB",
                 "CPI", "TreasuryBonds10y", "FedDiscountRate"),
   prod_vars = c("Exports", "RealNetProfit", "RealSocialConsumptionPerWorker2017",

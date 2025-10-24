@@ -20,7 +20,7 @@ bsts_model(
   folds_min = 5,
   sup_hi = 0.7,
   sup_lo = 0.6,
-  out_dir = "output_bsts"
+  out_dir = NULL
 )
 }
 \arguments{
@@ -78,7 +78,7 @@ document "DETALLES METODOLOGICOS SPACESTATE MODEL.docx".
 \dontrun{
 # Example usage
 result <- bsts_model(
-  data_path = "path/to/data.xlsx",
+  data_path = file.path(tempdir(), "data.xlsx"),
   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
                 "IPC", "TdI_LdelT", "TasaDescuento"),
   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 

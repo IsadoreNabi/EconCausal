@@ -37,7 +37,7 @@
 #' \dontrun{
 #' # Example usage
 #' result <- bsts_model(
-#'   data_path = "path/to/data.xlsx",
+#'   data_path = file.path(tempdir(), "data.xlsx"),
 #'   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
 #'                 "IPC", "TdI_LdelT", "TasaDescuento"),
 #'   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
@@ -51,13 +51,15 @@
 bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_frac = 0.8,
                        lfo_h = 6, lfo_step = 6, niter = 2000, burn = 500, seed = 123,
                        seasonality = NULL, support_min = 0.6, folds_min = 5, sup_hi = 0.7,
-                       sup_lo = 0.6, out_dir = "output_bsts") {
+                       sup_lo = 0.6, out_dir = NULL) {
   
-  # Create output directory
-  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  if (!is.null(out_dir)) {
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  }
+  old_options <- options()
+  on.exit(options(old_options), add = TRUE)
   options(scipen = 0)
   
-  # Utility functions
   simple_name <- function(nm) {
     nm <- gsub("^as\\.numeric\\.", "", nm)
     nm <- gsub("\\.NEW\\.$", "", nm)
@@ -120,7 +122,6 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
     pr <- stats::predict(model, horizon = h, newdata = newdata, burn = burn,
                         quantiles = c(probs95[1], probs95[2]))
     
-    # Try to get draws from prediction matrix
     draws <- NULL
     if (!is.null(pr$prediction.matrix) && is.matrix(pr$prediction.matrix)) {
       draws <- pr$prediction.matrix
@@ -138,7 +139,6 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
       return(list(mean = mean_vec, sd = sdv, q10 = qu[1, ], q90 = qu[2, ], q025 = qu[3, ], q975 = qu[4, ]))
     }
     
-    # Fallback to interval
     if (!is.null(pr$interval) && is.matrix(pr$interval) && ncol(pr$interval) >= 2) {
       mean_vec <- as.numeric(pr$mean)
       q025 <- pr$interval[, 1]
@@ -168,7 +168,6 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
                               diagonal.shrinkage = 0.5)
   }
   
-  # Function to fit a pair with LFO and tuning
   fit_pair_bsts_lfo_tuned <- function(data, Y_name, X_name) {
     # This would be the actual implementation
     # Placeholder for brevity - actual implementation would be here
@@ -181,29 +180,24 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
     )))
   }
   
-  # Load and prepare data
   DATA <- readxl::read_excel(data_path) %>%
     dplyr::rename_with(simple_name) %>%
     ensure_time_index()
   
-  # Check if we have the expected number of variables
   if (length(circ_vars) != 6L || length(prod_vars) != 7L) {
     stop("Incorrect number of circulation or production variables")
   }
   
-  # Create all pairs (both directions)
   pairs_ss <- dplyr::bind_rows(
     tidyr::expand_grid(Y = prod_vars, X = circ_vars),
     tidyr::expand_grid(Y = circ_vars, X = prod_vars)
   )
   
-  # Main processing loop
   out_list_ss <- vector("list", nrow(pairs_ss))
   
   for (i in seq_len(nrow(pairs_ss))) {
     cat(sprintf("[BSTS %d/%d] %s <- %s\n", i, nrow(pairs_ss), pairs_ss$Y[i], pairs_ss$X[i]))
     
-    # Fit pair with LFO and tuning
     result <- tryCatch(
       fit_pair_bsts_lfo_tuned(DATA, Y = pairs_ss$Y[i], X = pairs_ss$X[i]),
       error = function(e) {
@@ -215,7 +209,6 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
     out_list_ss[[i]] <- result
   }
   
-  # Process results
   summaries_ss <- purrr::map_dfr(out_list_ss, function(x) {
     if (is.null(x) || is.null(x$best_summary)) return(tibble::tibble())
     x$best_summary
@@ -226,7 +219,6 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
     return(NULL)
   }
   
-  # Ranking and filtering
   rank_ss_all <- summaries_ss %>%
     dplyr::mutate(pair = paste0(.data$X, " -> ", .data$Y)) %>%
     dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$dELPD_mean), dplyr::desc(.data$dRMSE_mean)) %>%
@@ -240,16 +232,16 @@ bsts_model <- function(data_path, circ_vars, prod_vars, max_lag = 6, lfo_init_fr
     dplyr::filter(.data$pass_support, .data$support >= sup_lo, .data$dELPD_mean > 0, .data$dRMSE_mean > 0) %>%
     dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$dELPD_mean), dplyr::desc(.data$dRMSE_mean))
   
-  # Export results
-  f_all <- file.path(out_dir, "bsts_rank_all_pairs.csv")
-  f_hi  <- file.path(out_dir, "bsts_winners_sup70.csv")
-  f_lo  <- file.path(out_dir, "bsts_winners_sup60.csv")
+  if (!is.null(out_dir)) {
+    f_all <- file.path(out_dir, "bsts_rank_all_pairs.csv")
+    f_hi  <- file.path(out_dir, "bsts_winners_sup70.csv")
+    f_lo  <- file.path(out_dir, "bsts_winners_sup60.csv")
+    
+    utils::write.csv(rank_ss_all, f_all, row.names = FALSE)
+    utils::write.csv(winners_ss_070, f_hi, row.names = FALSE)
+    utils::write.csv(winners_ss_060, f_lo, row.names = FALSE)
+  }
   
-  utils::write.csv(rank_ss_all, f_all, row.names = FALSE)
-  utils::write.csv(winners_ss_070, f_hi, row.names = FALSE)
-  utils::write.csv(winners_ss_060, f_lo, row.names = FALSE)
-  
-  # Return results
   return(list(
     rank_ss_all = rank_ss_all,
     winners_ss_070 = winners_ss_070,

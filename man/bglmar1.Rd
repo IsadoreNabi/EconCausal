@@ -96,7 +96,7 @@ not run in package examples or tests.
 \dontrun{
 # Example usage
 result <- bglmar1(
-  data_path = "path/to/data.xlsx",
+  data_path = file.path(tempdir(), "data.xlsx"),
   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
                 "IPC", "TdI_LdelT", "TasaDescuento"),
   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 

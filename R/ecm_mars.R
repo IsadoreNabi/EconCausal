@@ -41,7 +41,7 @@
 #' \dontrun{
 #' # Example usage
 #' result <- ecm_mars(
-#'   data_path = "path/to/data.xlsx",
+#'   data_path = file.path(tempdir(), "data.xlsx"),
 #'   circ_vars = c("ER.SPOT.CAN.US", "ER.SPOT.US.CAN", "ER.SPOT.US.REMB",
 #'                 "CPI", "TreasuryBonds10y", "FedDiscountRate"),
 #'   prod_vars = c("Exports", "RealNetProfit", "RealSocialConsumptionPerWorker2017",
@@ -61,14 +61,12 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
                      support_min = 0.75, folds_min_abs = 5, parallel_enable = TRUE,
                      parallel_workers = max(1, parallel::detectCores() - 1)) {
   
-  # Parallelization setup
   if (parallel_enable) {
     future::plan(future::multisession, workers = parallel_workers)
   } else {
     future::plan(future::sequential)
   }
   
-  # Avoid over-parallelization if BLAS already uses threads
   if (requireNamespace("RhpcBLASctl", quietly = TRUE)) {
     RhpcBLASctl::blas_set_num_threads(1)
     RhpcBLASctl::omp_set_num_threads(1)
@@ -77,10 +75,8 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
   progressr::handlers(global = TRUE)
   progressr::handlers("progress")
   
-  # Load and prepare data
   raw <- readxl::read_excel(data_path)
   
-  # Rename columns to standard names
   colnames(raw) <- c(
     "Month",
     "ER.SPOT.CAN.US", "ER.SPOT.US.CAN", "ER.SPOT.US.REMB",
@@ -90,11 +86,9 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
     "LaborProductivityPPP2017", "InvestmentPerWorkerPPP2017"
   )
   
-  # Ensure we have the expected variables
   circ_vars <- intersect(circ_vars, setdiff(colnames(raw), "Month"))
   prod_vars <- intersect(prod_vars, setdiff(colnames(raw), "Month"))
   
-  # Prepare ordered data frame
   df <- raw %>% dplyr::arrange(.data$Month)
   vars_all <- unique(c(circ_vars, prod_vars))
   df <- df[, c("Month", vars_all)]
@@ -102,7 +96,6 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
   idx_tr <- 1:floor(0.75 * n_total)
   idx_te <- (max(idx_tr) + 1):n_total
   
-  # Utility functions
   ur_reject_unitroot <- function(x, type = c("none", "drift", "trend"), level = 0.05) {
     type <- match.arg(type)
     x <- as.numeric(stats::na.omit(x))
@@ -166,10 +159,8 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
     if (nrow(df) < 20) return(list(p = NA, cointeg = FALSE, alpha = NA, beta = NA, res = NULL))
     reg <- stats::lm(y ~ x, data = df)
     res <- stats::residuals(reg)
-    # ADF (without deterministics)
     rej_adf <- ur_reject_unitroot(res, type = "none", level = eg_p_cutoff)
     eg_ok   <- isTRUE(rej_adf)
-    # Phillips-Ouliaris
     po_p <- suppressWarnings(tryCatch(tseries::po.test(df)$p.value, error = function(e) NA_real_))
     po_ok <- (!is.na(po_p) && po_p < eg_p_cutoff)
     list(
@@ -181,10 +172,7 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
     )
   }
   
-  # Placeholder for evaluate_direction_cv function
-  # This would be the actual implementation
   evaluate_direction_cv <- function(Y_name, X_name) {
-    # Simplified placeholder - actual implementation would be here
     return(tibble::tibble(
       pair = paste0(X_name, " -> ", Y_name),
       folds = sample(5:10, 1),
@@ -194,14 +182,11 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
     ))
   }
   
-  # Create tasks (all pairs in both directions)
   tasks <- rbind(
     data.frame(Y = rep(prod_vars, each = length(circ_vars)), X = rep(circ_vars, times = length(prod_vars))),
     data.frame(Y = rep(circ_vars, each = length(prod_vars)), X = rep(prod_vars, times = length(circ_vars)))
   )
   
-  # Execute evaluation
-  set.seed(123)
   results <- NULL
   progressr::with_progress({
     p <- progressr::progressor(steps = nrow(tasks))
@@ -211,7 +196,6 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
     }, future.seed = TRUE)
   })
   
-  # Process results
   bench <- dplyr::bind_rows(results) %>%
     dplyr::mutate(
       support      = .data$folds_proceed / pmax(.data$folds, 1),

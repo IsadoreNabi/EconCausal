@@ -45,7 +45,7 @@
 #' \dontrun{
 #' # Example usage
 #' result <- bglmar1(
-#'   data_path = "path/to/data.xlsx",
+#'   data_path = file.path(tempdir(), "data.xlsx"),
 #'   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
 #'                 "IPC", "TdI_LdelT", "TasaDescuento"),
 #'   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
@@ -65,7 +65,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   
   backend <- match.arg(backend)
   pick_backend <- function(pref = "auto") {
-    # user preference via option takes precedence
     opt <- getOption("EconCausal.backend", NA_character_)
     if (!is.na(opt)) pref <- opt
     
@@ -90,16 +89,15 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   }
   backend_used <- pick_backend(backend)
   
-  # Set execution preferences (no effect during CRAN checks; examples are \\dontrun)
+  old_options <- options()
+  on.exit(options(old_options), add = TRUE)
   options(mc.cores = parallel::detectCores())
   options(scipen = 0)
   
-  # Load data
   if (!exists("DATA")) {
     DATA <- readxl::read_excel(data_path)
   }
   
-  # Clean variable names
   simple_name <- function(nm) {
     nm <- gsub("^as\\.numeric\\.", "", nm)
     nm <- gsub("\\.NEW\\.$", "", nm)
@@ -111,7 +109,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   
   DATA <- DATA %>% dplyr::rename_with(simple_name)
   
-  # Ensure Month column exists and create time index
   if (!"Month" %in% names(DATA)) {
     time_candidates <- names(Filter(function(x) inherits(x, c("POSIXct","POSIXt","Date")), DATA))
     if (length(time_candidates) == 0) stop("No temporal column found")
@@ -120,20 +117,17 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   
   DATA <- DATA %>% dplyr::arrange(.data$Month) %>% dplyr::mutate(time_idx = dplyr::row_number())
   
-  # Check if we have the expected number of variables
   present <- setdiff(names(DATA), "Month")
   
   if (length(circ_vars) != 6L || length(prod_vars) != 7L) {
     stop("Incorrect number of circulation or production variables")
   }
   
-  # Create all pairs (both directions)
   pairs <- rbind(
     expand.grid(Y = prod_vars, X = circ_vars, stringsAsFactors = FALSE),
     expand.grid(Y = circ_vars, X = prod_vars, stringsAsFactors = FALSE)
   )
   
-  # Utility functions
   make_lags <- function(x, L) {
     out <- as.data.frame(sapply(1:L, function(k) dplyr::lag(x, k)))
     names(out) <- paste0("X_l", 1:L)
@@ -177,26 +171,22 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   
   log_mean_exp <- function(v) { m <- max(v); m + log(mean(exp(v - m))) }
   
-  # Prepare base frame with temporal index
   df <- DATA %>%
     dplyr::arrange(.data$Month) %>%
     dplyr::mutate(t_index = seq_len(n()))
   
-  # Priors for standardized scale (Y_s ~ N(0,1))
   pri <- c(
     brms::set_prior("normal(0, 1)",         class = "b"),
     brms::set_prior("student_t(3, 0, 2.5)", class = "Intercept"),
     brms::set_prior("exponential(1)",       class = "sigma")
   )
   
-  # Main loop over pairs with LFO
   res_list <- vector("list", nrow(pairs))
   
   for (pp in seq_len(nrow(pairs))) {
     Ynm <- pairs$Y[pp]
     Xnm <- pairs$X[pp]
     
-    # Frame for the pair + lags of X
     dat0 <- df %>%
       dplyr::select(.data$Month, .data$t_index, dplyr::all_of(c(Ynm, Xnm))) %>%
       dplyr::rename(Y = !!Ynm, X = !!Xnm) %>%
@@ -207,7 +197,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       tidyr::drop_na()
     
     n <- nrow(dat)
-    # Need space after lags for first window + test
     if (n < (initial_min + test_h + max_lag + 5)) {
       res_list[[pp]] <- tibble::tibble(
         pair = paste0(Xnm, " -> ", Ynm),
@@ -237,7 +226,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       next
     }
     
-    # Containers per fold
     wins <- logical(0)
     elpd_diffs <- numeric(0)
     rmse_diffs <- numeric(0)
@@ -250,7 +238,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       train <- dat[sp$train, , drop = FALSE]
       test  <- dat[sp$test,  , drop = FALSE]
       
-      # Standardization by fold (critical for NUTS)
       mu_y <- mean(train$Y); sd_y <- stats::sd(train$Y)
       if (!is.finite(sd_y) || sd_y <= .Machine$double.eps) {
         next
@@ -258,13 +245,11 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       train$Y_s <- (train$Y - mu_y) / sd_y
       test$Y_s  <- (test$Y  - mu_y) / sd_y
       
-      # Scale time (centered near 0, reasonable range)
       t_mu <- mean(train$t_index); t_sd <- stats::sd(train$t_index)
       if (!is.finite(t_sd) || t_sd <= .Machine$double.eps) t_sd <- 1
       train$t_s <- (train$t_index - t_mu) / t_sd
       test$t_s  <- (test$t_index  - t_mu) / t_sd
       
-      # Scale X lags with train statistics
       x_lag_names <- paste0("X_l", 1:max_lag)
       for (nm in x_lag_names) {
         mu_x <- mean(train[[nm]], na.rm = TRUE)
@@ -278,11 +263,9 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       }
       x_lag_used <- intersect(x_lag_names, names(train))
       
-      # Need a "series" for AR(1)
       train$series <- factor("one")
       test$series  <- factor("one")
       
-      # brms formulas (AR1)
       f_base <- brms::bf(
         Y_s ~ 1 + t_s,
         autocor = brms::cor_ar(~ t_index | series, p = 1)
@@ -293,7 +276,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
         autocor = brms::cor_ar(~ t_index | series, p = 1)
       )
       
-      # Model fitting with selected backend
       m_base <- tryCatch(
         brms::brm(
           formula = f_base, data = train, family = stats::gaussian(), prior = pri,
@@ -316,7 +298,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       )
       if (is.null(m_base) || is.null(m_full)) next
       
-      # ELPD fold (NEW DATA)
       ll_base <- tryCatch(brms::log_lik(m_base, newdata = test, re_formula = NA), error = function(e) NULL)
       ll_full <- tryCatch(brms::log_lik(m_full, newdata = test, re_formula = NA), error = function(e) NULL)
       if (is.null(ll_base) || is.null(ll_full)) {
@@ -326,7 +307,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       elpd_full <- sum(apply(ll_full, 2, log_mean_exp))
       elpd_diff <- elpd_full - elpd_base
       
-      # OOS predictions (posterior mean) and metrics in original scale
       ep_base <- brms::posterior_epred(m_base, newdata = test, re_formula = NA)
       ep_full <- brms::posterior_epred(m_full, newdata = test, re_formula = NA)
       yhat_base <- colMeans(ep_base) * sd_y + mu_y
@@ -342,7 +322,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       r2_base   <- safe_r2(yhat_base, obs)
       r2_full   <- safe_r2(yhat_full, obs)
       
-      # WIN if improves ELPD and lowers RMSE
       win <- is.finite(elpd_diff) && (elpd_diff > 0) &&
         is.finite(rmse_base) && is.finite(rmse_full) && (rmse_full < rmse_base)
       
@@ -358,7 +337,7 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       smape_base_v<- c(smape_base_v,sm_base)
       r2_full_v   <- c(r2_full_v,   r2_full)
       r2_base_v   <- c(r2_base_v,   r2_base)
-    } # end folds
+    }
     
     folds <- length(wins)
     if (folds == 0L) {
@@ -394,13 +373,12 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   bench_bayes <- dplyr::bind_rows(res_list) %>%
     dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
   
-  # Ranking function
   rank_bglm_results <- function(bench = bench_bayes,
                                 sup_hi = sup_hi, sup_lo = sup_lo,
                                 min_folds = folds_min,
-                                out_all = "bglm_rank_all_pairs.csv",
-                                out_hi  = "bglm_winners_sup70.csv",
-                                out_lo  = "bglm_winners_sup60.csv") {
+                                out_all = NULL,
+                                out_hi  = NULL,
+                                out_lo  = NULL) {
     
     top_all <- bench %>%
       dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
@@ -415,7 +393,6 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
              .data$ELPD_diff_mean > 0, .data$RMSE_diff_mean < 0) %>%
       dplyr::arrange(dplyr::desc(.data$support), dplyr::desc(.data$ELPD_diff_mean), .data$RMSE_diff_mean)
     
-    # Useful ratios
     bench_ratios <- bench %>%
       dplyr::mutate(
         RMSE_ratio = .data$RMSE_full_mean / .data$RMSE_base_mean,
@@ -424,17 +401,15 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
       dplyr::arrange(.data$RMSE_ratio) %>%
       dplyr::select(.data$pair, .data$support, .data$ELPD_diff_mean, .data$RMSE_diff_mean, .data$RMSE_ratio, .data$MAE_ratio)
     
-    # Export
-    utils::write.csv(top_all,    out_all, row.names = FALSE)
-    utils::write.csv(winners_hi, out_hi,  row.names = FALSE)
-    utils::write.csv(winners_lo, out_lo,  row.names = FALSE)
+    if (!is.null(out_all)) utils::write.csv(top_all, out_all, row.names = FALSE)
+    if (!is.null(out_hi)) utils::write.csv(winners_hi, out_hi, row.names = FALSE)
+    if (!is.null(out_lo)) utils::write.csv(winners_lo, out_lo, row.names = FALSE)
     
     invisible(list(all = top_all, winners_hi = winners_hi, winners_lo = winners_lo, ratios = bench_ratios))
   }
   
   rank_out <- rank_bglm_results()
   
-  # Return results
   return(list(
     bench_bayes = bench_bayes,
     winners_070 = rank_out$winners_hi,
