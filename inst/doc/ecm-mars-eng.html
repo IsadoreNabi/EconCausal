@@ -239,7 +239,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <h1 class="title toc-ignore"><strong>Methodological Details of the Error
 Correction Model with MARS</strong></h1>
 <h4 class="author">José Mauricio Gómez Julián</h4>
-<h4 class="date">octubre 2025</h4>
+<h4 class="date">September 2026</h4>
 
 
 <div id="TOC">
@@ -433,12 +433,9 @@ exceeds the critical value at 5% for any specification.</p>
 <ol style="list-style-type: decimal">
 <li><strong>Robustness to regime changes</strong>: Different tests may
 be sensitive to different types of structural breaks</li>
-<li><strong>Compensation with subsequent filters</strong>: The ECM with
-<span class="math inline">\(\lambda &lt; 0\)</span> and out-of-sample
-validation filter false positives</li>
-<li><strong>Empirical evidence</strong>: Monte Carlo tests show lower
-FNR without substantial FPR inflation when combined with predictive
-validation</li>
+<li><strong>Compensation with a subsequent filter</strong>: The ECM with
+a significantly negative <span class="math inline">\(\lambda\)</span>,
+required in the same training window, filters false positives</li>
 </ol>
 </div>
 </div>
@@ -643,8 +640,13 @@ source of predictive error.</p>
 <p>We define support as:</p>
 <p><span class="math display">\[\text{support} =
 \frac{\text{folds\_proceed}}{\text{folds}}\]</span></p>
-<p>where <code>folds_proceed</code> counts folds that pass all
-econometric filters and have acceptable predictive performance.</p>
+<p>where <code>folds_proceed</code> counts the folds whose training
+window passes all econometric filters: both series integrated of order
+one, cointegration under the chosen rule, and a significantly negative
+error-correction coefficient. Support therefore measures how
+persistently these admissibility conditions hold across windows, not
+forecast accuracy; the forecast metrics of the test windows are reported
+separately and do not enter <code>folds_proceed</code>.</p>
 </div>
 <div id="validation-thresholds" class="section level3">
 <h3><strong>Validation Thresholds</strong></h3>

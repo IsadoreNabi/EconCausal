@@ -101,8 +101,7 @@ Testeamos $H_0: r = 0$ (ningún vector de cointegración) mediante el estadísti
 La regla "either" (EG **o** Johansen) en lugar de "both" (EG **y** Johansen) se justifica por:
 
 1. **Robustez a cambios de régimen**: Diferentes pruebas pueden ser sensibles a distintos tipos de quiebres estructurales
-2. **Compensación con filtros posteriores**: El ECM con $\lambda < 0$ y la validación out-of-sample filtran falsos positivos
-3. **Evidencia empírica**: Tests de Monte Carlo muestran menor FNR sin inflación sustancial de FPR cuando se combina con validación predictiva
+2. **Compensación con un filtro posterior**: El ECM con $\lambda$ significativamente negativo, exigido en la misma ventana de entrenamiento, filtra falsos positivos
 
 ## **Modelo de Corrección de Errores (ECM)**
 
@@ -256,7 +255,7 @@ Definimos el soporte como:
 
 $$\text{support} = \frac{\text{folds\_proceed}}{\text{folds}}$$
 
-donde `folds_proceed` cuenta los folds que pasan todos los filtros econométricos y tienen desempeño predictivo aceptable.
+donde `folds_proceed` cuenta los folds cuya ventana de entrenamiento pasa todos los filtros econométricos: ambas series integradas de orden uno, cointegración según la regla elegida y un coeficiente de corrección de error significativamente negativo. El soporte mide, por lo tanto, cuán persistentemente se cumplen esas condiciones de admisibilidad a través de las ventanas, no la precisión del pronóstico; las métricas de pronóstico de las ventanas de prueba se reportan por separado y no entran en `folds_proceed`.
 
 ### **Umbrales de Validación**
 

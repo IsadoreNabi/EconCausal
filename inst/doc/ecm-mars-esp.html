@@ -239,7 +239,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <h1 class="title toc-ignore"><strong>Detalles Metodológicos del Modelo
 de Corrección de Errores con MARS</strong></h1>
 <h4 class="author">José Mauricio Gómez Julián</h4>
-<h4 class="date">octubre 2025</h4>
+<h4 class="date">September 2026</h4>
 
 
 <div id="TOC">
@@ -435,12 +435,10 @@ excede el valor crítico al 5% para alguna especificación.</p>
 <ol style="list-style-type: decimal">
 <li><strong>Robustez a cambios de régimen</strong>: Diferentes pruebas
 pueden ser sensibles a distintos tipos de quiebres estructurales</li>
-<li><strong>Compensación con filtros posteriores</strong>: El ECM con
-<span class="math inline">\(\lambda &lt; 0\)</span> y la validación
-out-of-sample filtran falsos positivos</li>
-<li><strong>Evidencia empírica</strong>: Tests de Monte Carlo muestran
-menor FNR sin inflación sustancial de FPR cuando se combina con
-validación predictiva</li>
+<li><strong>Compensación con un filtro posterior</strong>: El ECM con
+<span class="math inline">\(\lambda\)</span> significativamente
+negativo, exigido en la misma ventana de entrenamiento, filtra falsos
+positivos</li>
 </ol>
 </div>
 </div>
@@ -646,8 +644,14 @@ fuente principal del error predictivo.</p>
 <p>Definimos el soporte como:</p>
 <p><span class="math display">\[\text{support} =
 \frac{\text{folds\_proceed}}{\text{folds}}\]</span></p>
-<p>donde <code>folds_proceed</code> cuenta los folds que pasan todos los
-filtros econométricos y tienen desempeño predictivo aceptable.</p>
+<p>donde <code>folds_proceed</code> cuenta los folds cuya ventana de
+entrenamiento pasa todos los filtros econométricos: ambas series
+integradas de orden uno, cointegración según la regla elegida y un
+coeficiente de corrección de error significativamente negativo. El
+soporte mide, por lo tanto, cuán persistentemente se cumplen esas
+condiciones de admisibilidad a través de las ventanas, no la precisión
+del pronóstico; las métricas de pronóstico de las ventanas de prueba se
+reportan por separado y no entran en <code>folds_proceed</code>.</p>
 </div>
 <div id="umbrales-de-validación" class="section level3">
 <h3><strong>Umbrales de Validación</strong></h3>

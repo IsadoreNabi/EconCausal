@@ -1,56 +1,136 @@
-#' Bayesian Generalized Linear Model with AR(1) Errors
+#' Bayesian generalized linear model with AR(1) errors and leave-future-out validation
 #'
-#' Implements a Bayesian GLM with autoregressive errors of order 1 for causal inference
-#' between economic variables, with emphasis on temporal stability through Leave-Future-Out
-#' cross-validation.
+#' Evaluates every directed pair between six circulation variables and seven production
+#' variables, in both directions, by comparing a Bayesian regression of the response on a linear
+#' time trend with and without lagged values of the predictor, both with first-order
+#' autoregressive errors. Each comparison is repeated over successive forecast windows, and a
+#' direction counts as supported in a window only when adding the lags improves both the
+#' predictive density and the point forecast. Use it to rank directed relationships by how
+#' consistently the predictor improves out-of-sample forecasts.
 #'
-#' @param data_path Path to Excel file containing the data
-#' @param circ_vars Character vector of circulation variable names
-#' @param prod_vars Character vector of production variable names
-#' @param max_lag Maximum number of lags for independent variables (default: 3)
-#' @param initial_frac Initial fraction of data for training (default: 0.7)
-#' @param initial_min Minimum number of observations for initial training (default: 90)
-#' @param test_h Test horizon in months (default: 12)
-#' @param step_h Step size between folds in months (default: 12)
-#' @param lfo_window Type of window for LFO ("sliding" or "expanding", default: "sliding")
-#' @param chains Number of MCMC chains (default: 4)
-#' @param parallel_chains Number of parallel chains (default: 4)
-#' @param iter Total iterations per chain (default: 1500)
-#' @param warmup Warmup iterations per chain (default: 750)
-#' @param adapt_delta Adapt delta parameter for NUTS (default: 0.95)
-#' @param trees Maximum tree depth for NUTS (default: 12)
-#' @param seed Random seed (default: 2025)
-#' @param support_min Minimum support threshold for stable relationships (default: 0.6)
-#' @param folds_min Minimum number of folds required (default: 5)
-#' @param sup_hi High support threshold (default: 0.7)
-#' @param sup_lo Low support threshold (default: 0.6)
-#' @param backend Backend for Stan compilation: "auto" (default), "rstan", or "cmdstanr".
-#'   If "auto", the function uses 'rstan' when available, otherwise tries 'cmdstanr'.
+#' @param data_path Character scalar. Path to an Excel file with a date column and the series
+#'   named in `circ_vars` and `prod_vars`. Column names are cleaned before matching: a leading
+#'   `as.numeric.`, trailing `.NEW.` or `.1.588.` and trailing dots are removed, and remaining
+#'   dots become underscores. A date column named `Month` is used, or the first date-time
+#'   column is renamed to `Month`.
+#' @param circ_vars Character vector of exactly six circulation variable names, after cleaning.
+#' @param prod_vars Character vector of exactly seven production variable names, after cleaning.
+#' @param max_lag Integer scalar >= 1, default `3`. Number of lags of the predictor used as
+#'   regressors.
+#' @param initial_frac Numeric scalar in (0, 1), default `0.7`. Fraction of the complete
+#'   observations that sizes the first training window; the size actually used is the larger of
+#'   that fraction and `initial_min`.
+#' @param initial_min Integer scalar >= 1, default `90`. Lower bound of the first training
+#'   window.
+#' @param test_h Integer scalar >= 1, default `12`. Number of observations in the test block of
+#'   each validation window; one year with monthly data.
+#' @param step_h Integer scalar >= 1, default `12`. Advance of the end of the training sample
+#'   between windows.
+#' @param lfo_window `"sliding"` (default) or `"expanding"`. With `"sliding"` the training
+#'   sample keeps at most the initial number of rows and moves forward; with `"expanding"` it
+#'   grows from the first observation.
+#' @param chains Integer scalar >= 1, default `4`. Number of MCMC chains per model.
+#' @param parallel_chains Integer scalar >= 1, default `4`. Number of chains run in parallel,
+#'   passed as the number of cores of the sampler.
+#' @param iter Integer scalar > `warmup`, default `1500`. Total iterations per chain, warmup
+#'   included.
+#' @param warmup Integer scalar >= 0 and < `iter`, default `750`. Warmup iterations per chain.
+#' @param adapt_delta Numeric scalar in (0, 1), default `0.95`. Target acceptance rate of the
+#'   sampler.
+#' @param trees Integer scalar >= 1, default `12`. Maximum tree depth of the sampler.
+#' @param seed Integer scalar, default `2025`. Base seed; the model without lags is fitted with
+#'   `seed + 101` and the model with lags with `seed + 202`, in every window and for every pair.
+#' @param support_min Numeric scalar, default `0.6`. Not used by the function; the support
+#'   thresholds applied to the returned rankings are `sup_hi` and `sup_lo`.
+#' @param folds_min Integer scalar >= 0, default `5`. Minimum number of evaluated windows
+#'   required by `winners_070` and `winners_060`.
+#' @param sup_hi Numeric scalar in \[0, 1\], default `0.7`. Support threshold of `winners_070`.
+#' @param sup_lo Numeric scalar in \[0, 1\], default `0.6`. Support threshold of `winners_060`.
+#' @param backend Character scalar, one of `"auto"` (default), `"rstan"` or `"cmdstanr"`. Engine
+#'   used to fit the models. With `"auto"` the function uses `rstan` when it is installed and
+#'   otherwise a working `cmdstanr`. The option `EconCausal.backend`, when set, overrides this
+#'   argument, and the function stops when neither engine is available.
 #'
-#' @return A list containing:
-#' \item{bench_bayes}{Full results for all pairs}
-#' \item{winners_070}{Pairs with support >= 0.70}
-#' \item{winners_060}{Pairs with support >= 0.60}
-#' \item{rank_out}{Output from ranking function}
+#' @return A list with four elements. `bench_bayes` is a tibble with one row per direction and
+#'   the columns `pair` (written as `"X -> Y"`), `folds`, `folds_pass`, `support`
+#'   (`folds_pass / folds`), `ELPD_diff_mean`, `RMSE_diff_mean`, `RMSE_full_mean`,
+#'   `RMSE_base_mean`, `MAE_full_mean`, `MAE_base_mean`, `sMAPE_full_mean`, `sMAPE_base_mean`,
+#'   `R2_full_mean` and `R2_base_mean`, sorted by decreasing `support`, decreasing
+#'   `ELPD_diff_mean` and increasing `RMSE_diff_mean`. `winners_070` and `winners_060` are the
+#'   rows of that tibble with at least `folds_min` evaluated windows, finite support of at least
+#'   `sup_hi` or `sup_lo`, positive `ELPD_diff_mean` and negative `RMSE_diff_mean`; their names
+#'   do not change with `sup_hi` and `sup_lo`. `rank_out` is a list with `all`, the sorted
+#'   benchmark, `winners_hi` and `winners_lo`, the two tibbles just described, and `ratios`,
+#'   with `pair`, `support`, `ELPD_diff_mean`, `RMSE_diff_mean`, `RMSE_ratio` and `MAE_ratio`,
+#'   sorted by increasing `RMSE_ratio`. A direction with too few observations, without any
+#'   validation window or without any evaluated window returns a row with `folds` equal to zero
+#'   and missing metrics.
 #'
 #' @details
-#' This function implements a Bayesian GLM with AR(1) errors for assessing causal relationships
-#' between economic variables. It uses Leave-Future-Out cross-validation with sliding windows
-#' to evaluate temporal stability of relationships. The function no longer requires 'cmdstanr'
-#' at install time; if 'backend = "cmdstanr"' is requested but 'cmdstanr' (and a working CmdStan)
-#' are not available, it gracefully falls back to 'rstan'. In any case, heavy computations are
-#' not run in package examples or tests.
+#' For each direction the predictor is lagged `max_lag` times and incomplete rows are dropped. A
+#' direction is skipped when the remaining rows are fewer than `initial_min + test_h + max_lag +
+#' 5`. The first training sample holds the larger of `initial_min` rows and `initial_frac` of the
+#' remaining rows, each test block holds the next `test_h` observations, and the end of the
+#' training sample advances by `step_h` until the last observation is reached. In each window the
+#' response, the time index and the lags are standardised with the training mean and standard
+#' deviation, the response is returned to its original scale before the metrics are computed, and
+#' a lag whose training standard deviation is zero is dropped from that window.
+#'
+#' Two models are fitted to the standardised response with Gaussian errors, a normal prior on the
+#' regression coefficients, a Student t prior on the intercept and an exponential prior on the
+#' residual scale: a model on the standardised time index alone and a model that adds the
+#' standardised lags of the predictor. Both carry a first-order autoregressive term on a single
+#' series indexed by time, so the comparison isolates the contribution of the lags. For the test
+#' block the window records the expected log predictive density of each observation, obtained as
+#' the log of the mean of the posterior likelihood draws and summed over the block, together with
+#' RMSE, MAE, symmetric MAPE and the coefficient of determination of the posterior mean forecast.
+#' A window is a win when the model with the lags has both a higher predictive density and a
+#' lower RMSE, and `support` is the share of wins among the evaluated windows.
+#'
+#' @section Methodological notes:
+#' `support` requires improvement in probabilistic fit and in point error at the same time; a
+#' predictor that improves only one of them in a window does not count. The predictive density is
+#' computed from the posterior likelihood draws of the test observations, with group-level terms
+#' excluded, and not from a Gaussian approximation to the forecast. Standardising the response,
+#' the time index and the lags with training statistics only keeps test-window information out of
+#' the fit. The linear time trend enters both models, so a direction cannot be supported by the
+#' trend itself. Windows in which the response does not vary, or in which a fit or a predictive
+#' evaluation fails, are dropped and do not count in `folds`, so `support` is a proportion over
+#' evaluated windows and not over possible ones. Both seeds are derived from `seed` and not from
+#' the window or the pair, which makes a run reproducible for a given `seed`. The 84 directions
+#' are ranked under a common criterion and without any correction for multiplicity: `support`
+#' describes how consistent a single direction is across windows, and is not a joint test.
+#'
+#' @section Dependencies:
+#' `brms` builds the formulas and the priors, fits the models, and produces the pointwise
+#' likelihood and the posterior expectation of the test block; the fitting engine is `rstan` or
+#' `cmdstanr`, which are suggested packages chosen at run time and not imported. `readxl` reads
+#' the data; `dplyr`, `tidyr` and `tibble` build lags, windows and summaries; `magrittr` supplies
+#' the pipe and `rlang` the data pronoun; `stats` provides the standard deviation, the Gaussian
+#' family and the formula built for each window; `parallel` counts the available cores for the
+#' duration of the call; and `utils` writes the ranking tables when the internal ranking helper
+#' is given output paths, which the defaults do not do.
+#'
+#' @references
+#' \enc{Bürkner}{Burkner}, P.-C. (2017). brms: An R package for Bayesian multilevel models using
+#' Stan. *Journal of Statistical Software, 80*(1), 1\enc{–}{-}28.
+#' \doi{10.18637/jss.v080.i01}
+#'
+#' \enc{Bürkner}{Burkner}, P.-C., Gabry, J., & Vehtari, A. (2020). Approximate leave-future-out
+#' cross-validation for Bayesian time series models. *Journal of Statistical Computation and
+#' Simulation, 90*(14), 2499\enc{–}{-}2523. \doi{10.1080/00949655.2020.1783262}
+#'
+#' @seealso [bsts_model()], [ecm_mars()]; the vignettes `bglmar1-eng` and `bglmar-esp`.
 #'
 #' @examples
 #' \dontrun{
-#' # Example usage
 #' result <- bglmar1(
 #'   data_path = file.path(tempdir(), "data.xlsx"),
 #'   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
 #'                 "IPC", "TdI_LdelT", "TasaDescuento"),
-#'   prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
+#'   prod_vars = c("ValorExportaciones", "Real_Net_Profit",
 #'                 "RealSocialConsumptionPerWorker2017", "RealWage_PPP2017",
-#'                 "CapitalStock_PPP2017", "LaborProductivity_PPP2017", 
+#'                 "CapitalStock_PPP2017", "LaborProductivity_PPP2017",
 #'                 "InvestmentPerWorker_PPP2017"),
 #'   backend = "auto"
 #' )
@@ -87,17 +167,14 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
     }
     stop("Neither 'rstan' nor 'cmdstanr' is available. Please install one of them to fit models.")
   }
-  backend_used <- pick_backend(backend)
-  
+
   old_options <- options()
   on.exit(options(old_options), add = TRUE)
   options(mc.cores = parallel::detectCores())
   options(scipen = 0)
   
-  if (!exists("DATA")) {
-    DATA <- readxl::read_excel(data_path)
-  }
-  
+  DATA <- readxl::read_excel(data_path)
+
   simple_name <- function(nm) {
     nm <- gsub("^as\\.numeric\\.", "", nm)
     nm <- gsub("\\.NEW\\.$", "", nm)
@@ -122,7 +199,9 @@ bglmar1 <- function(data_path, circ_vars, prod_vars, max_lag = 3, initial_frac =
   if (length(circ_vars) != 6L || length(prod_vars) != 7L) {
     stop("Incorrect number of circulation or production variables")
   }
-  
+
+  backend_used <- pick_backend(backend)
+
   pairs <- rbind(
     expand.grid(Y = prod_vars, X = circ_vars, stringsAsFactors = FALSE),
     expand.grid(Y = circ_vars, X = prod_vars, stringsAsFactors = FALSE)

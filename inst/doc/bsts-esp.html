@@ -341,7 +341,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <h1 class="title toc-ignore"><strong>Detalles Metodológicos de Modelos
 de Estado-Espacio Bayesianos con Selección de Variables</strong></h1>
 <h4 class="author">José Mauricio Gómez Julián</h4>
-<h4 class="date">octubre 2025</h4>
+<h4 class="date">September 2026</h4>
 
 
 <div id="TOC">
@@ -1044,18 +1044,15 @@ supuestos econométricos estrictos, y del GLM-AR(1) que modela solo
 dependencia serial global, BSTS descompone la serie en componentes
 interpretables mientras selecciona automáticamente predictores
 relevantes.</p>
-<p>Los resultados empíricos sugieren que BSTS identifica relaciones
-predictivas robustas con alta precisión, aunque a un costo computacional
-sustancialmente mayor. La capacidad de cuantificar incertidumbre en
-todos los niveles —desde componentes estructurales hasta predicciones—
-lo hace particularmente valioso para aplicaciones donde la evaluación de
-riesgo es crítica.</p>
+<p>La capacidad de cuantificar incertidumbre en todos los niveles —desde
+componentes estructurales hasta predicciones— lo hace particularmente
+valioso para aplicaciones donde la evaluación de riesgo es crítica.</p>
 <p>La implementación con horizonte de 6 meses (vs 12 en otras
-metodologías) proporciona evaluación más granular de la estabilidad
-temporal, revelando que muchas relaciones que parecen estables en
-horizontes largos muestran variabilidad en escalas más cortas. Esto
-sugiere la importancia de considerar múltiples horizontes en la
-evaluación de modelos predictivos.</p>
+metodologías) evalúa la estabilidad temporal con mayor granularidad, de
+modo que una relación que parece estable en horizontes largos puede
+examinarse en busca de variabilidad en escalas más cortas. Conviene
+considerar varios horizontes en la evaluación de modelos
+predictivos.</p>
 <p>El framework BSTS es especialmente apropiado cuando: - La
 interpretación de componentes es prioritaria - Existe incertidumbre
 sobre qué predictores incluir - Se requieren intervalos de predicción

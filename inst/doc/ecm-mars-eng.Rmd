@@ -101,8 +101,7 @@ We test $H_0: r = 0$ (no cointegrating vectors) using the trace statistic. We te
 The "either" rule (EG **or** Johansen) instead of "both" (EG **and** Johansen) is justified by:
 
 1. **Robustness to regime changes**: Different tests may be sensitive to different types of structural breaks
-2. **Compensation with subsequent filters**: The ECM with $\lambda < 0$ and out-of-sample validation filter false positives
-3. **Empirical evidence**: Monte Carlo tests show lower FNR without substantial FPR inflation when combined with predictive validation
+2. **Compensation with a subsequent filter**: The ECM with a significantly negative $\lambda$, required in the same training window, filters false positives
 
 ## **Error Correction Model (ECM)**
 
@@ -256,7 +255,7 @@ We define support as:
 
 $$\text{support} = \frac{\text{folds\_proceed}}{\text{folds}}$$
 
-where `folds_proceed` counts folds that pass all econometric filters and have acceptable predictive performance.
+where `folds_proceed` counts the folds whose training window passes all econometric filters: both series integrated of order one, cointegration under the chosen rule, and a significantly negative error-correction coefficient. Support therefore measures how persistently these admissibility conditions hold across windows, not forecast accuracy; the forecast metrics of the test windows are reported separately and do not enter `folds_proceed`.
 
 ### **Validation Thresholds**
 

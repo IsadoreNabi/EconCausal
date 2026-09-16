@@ -341,7 +341,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <h1 class="title toc-ignore"><strong>Methodological Details of Bayesian
 State-Space Models with Variable Selection</strong></h1>
 <h4 class="author">José Mauricio Gómez Julián</h4>
-<h4 class="date">octubre 2025</h4>
+<h4 class="date">September 2026</h4>
 
 
 <div id="TOC">
@@ -1032,16 +1032,14 @@ ECM-MARS which requires prior validation of strict econometric
 assumptions, and GLM-AR(1) which models only global serial dependence,
 BSTS decomposes the series into interpretable components while
 automatically selecting relevant predictors.</p>
-<p>Empirical results suggest that BSTS identifies robust predictive
-relationships with high precision, albeit at substantially higher
-computational cost. The ability to quantify uncertainty at all
-levels—from structural components to predictions—makes it particularly
-valuable for applications where risk assessment is critical.</p>
+<p>The ability to quantify uncertainty at all levels—from structural
+components to predictions—makes it particularly valuable for
+applications where risk assessment is critical.</p>
 <p>The implementation with a 6-month horizon (vs 12 in other
-methodologies) provides more granular evaluation of temporal stability,
-revealing that many relationships appearing stable at long horizons show
-variability at shorter scales. This suggests the importance of
-considering multiple horizons in predictive model evaluation.</p>
+methodologies) evaluates temporal stability at a finer granularity, so a
+relationship that looks stable at longer horizons can be examined for
+variability at shorter scales. Considering several horizons is advisable
+in predictive model evaluation.</p>
 <p>The BSTS framework is especially appropriate when: - Component
 interpretation is a priority - There is uncertainty about which
 predictors to include - Well-calibrated prediction intervals are

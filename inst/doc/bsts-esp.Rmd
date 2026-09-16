@@ -435,9 +435,9 @@ PARA cada par (Y, X):
 
 La metodología BSTS representa el enfoque más comprehensivo y flexible de los tres implementados, combinando la rigurosidad de la inferencia bayesiana con la interpretabilidad de la descomposición estructural. A diferencia del ECM-MARS que requiere validación previa de supuestos econométricos estrictos, y del GLM-AR(1) que modela solo dependencia serial global, BSTS descompone la serie en componentes interpretables mientras selecciona automáticamente predictores relevantes.
 
-Los resultados empíricos sugieren que BSTS identifica relaciones predictivas robustas con alta precisión, aunque a un costo computacional sustancialmente mayor. La capacidad de cuantificar incertidumbre en todos los niveles —desde componentes estructurales hasta predicciones— lo hace particularmente valioso para aplicaciones donde la evaluación de riesgo es crítica.
+La capacidad de cuantificar incertidumbre en todos los niveles —desde componentes estructurales hasta predicciones— lo hace particularmente valioso para aplicaciones donde la evaluación de riesgo es crítica.
 
-La implementación con horizonte de 6 meses (vs 12 en otras metodologías) proporciona evaluación más granular de la estabilidad temporal, revelando que muchas relaciones que parecen estables en horizontes largos muestran variabilidad en escalas más cortas. Esto sugiere la importancia de considerar múltiples horizontes en la evaluación de modelos predictivos.
+La implementación con horizonte de 6 meses (vs 12 en otras metodologías) evalúa la estabilidad temporal con mayor granularidad, de modo que una relación que parece estable en horizontes largos puede examinarse en busca de variabilidad en escalas más cortas. Conviene considerar varios horizontes en la evaluación de modelos predictivos.
 
 El framework BSTS es especialmente apropiado cuando:
 - La interpretación de componentes es prioritaria

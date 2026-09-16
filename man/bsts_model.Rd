@@ -2,7 +2,7 @@
 % Please edit documentation in R/bsts_model.R
 \name{bsts_model}
 \alias{bsts_model}
-\title{Bayesian Structural Time Series Model}
+\title{Bayesian structural time series with leave-future-out validation}
 \usage{
 bsts_model(
   data_path,
@@ -24,68 +24,136 @@ bsts_model(
 )
 }
 \arguments{
-\item{data_path}{Path to Excel file containing the data}
+\item{data_path}{Character scalar. Path to an Excel file with a date column and the series
+named in \code{circ_vars} and \code{prod_vars}. Column names are cleaned before matching: a leading
+\code{as.numeric.}, trailing \code{.NEW.} or \verb{.1.588.} and trailing dots are removed, and remaining
+dots become underscores. A date column named \code{Month} is used, or the first date-time
+column is renamed to \code{Month}.}
 
-\item{circ_vars}{Character vector of circulation variable names}
+\item{circ_vars}{Character vector of exactly six circulation variable names, after cleaning.}
 
-\item{prod_vars}{Character vector of production variable names}
+\item{prod_vars}{Character vector of exactly seven production variable names, after cleaning.}
 
-\item{max_lag}{Maximum number of lags for independent variables (default: 6)}
+\item{max_lag}{Integer scalar >= 1, default \code{6}. Number of lags of the predictor used as
+regressors.}
 
-\item{lfo_init_frac}{Initial fraction for LFO (default: 0.8)}
+\item{lfo_init_frac}{Numeric scalar in (0, 1), default \code{0.8}. Fraction of the complete
+observations in the first training window (at least 30 rows).}
 
-\item{lfo_h}{Horizon for LFO (default: 6)}
+\item{lfo_h}{Integer scalar >= 1, default \code{6}. Forecast horizon of each validation window.}
 
-\item{lfo_step}{Step size for LFO (default: 6)}
+\item{lfo_step}{Integer scalar >= 1, default \code{6}. Advance between validation windows.}
 
-\item{niter}{Number of MCMC iterations (default: 2000)}
+\item{niter}{Integer scalar > \code{burn}, default \code{2000}. Number of MCMC iterations per model.}
 
-\item{burn}{Number of burn-in iterations (default: 500)}
+\item{burn}{Integer scalar >= 0 and < \code{niter}, default \code{500}. MCMC iterations discarded
+before forecasting.}
 
-\item{seed}{Random seed (default: 123)}
+\item{seed}{Integer scalar, default \code{123}. Base seed; model fits and forecasts in window \code{i}
+use \code{seed + i} (model without predictor) and \code{seed + 1000 + i} (model with predictor).}
 
-\item{seasonality}{Seasonality parameter (NULL for none, 12 for monthly)}
+\item{seasonality}{\code{NULL} (default) or an integer scalar >= 2 giving the number of seasons
+of a seasonal state component.}
 
-\item{support_min}{Minimum support threshold (default: 0.6)}
+\item{support_min}{Numeric scalar in [0, 1], default \code{0.6}. Minimum support for
+\code{pass_support}.}
 
-\item{folds_min}{Minimum number of folds required (default: 5)}
+\item{folds_min}{Integer scalar >= 0, default \code{5}. Minimum number of evaluated windows for
+\code{pass_support}.}
 
-\item{sup_hi}{High support threshold (default: 0.7)}
+\item{sup_hi}{Numeric scalar in [0, 1], default \code{0.7}. Support threshold of
+\code{winners_ss_070}.}
 
-\item{sup_lo}{Low support threshold (default: 0.6)}
+\item{sup_lo}{Numeric scalar in [0, 1], default \code{0.6}. Support threshold of
+\code{winners_ss_060}.}
 
-\item{out_dir}{Output directory for results (default: "output_bsts")}
+\item{out_dir}{\code{NULL} (default) or a character scalar. If given, the directory is created and
+the three ranking tables are written there as CSV files.}
 }
 \value{
-A list containing:
-\item{rank_ss_all}{Full results for all pairs}
-\item{winners_ss_070}{Pairs with support >= 0.70}
-\item{winners_ss_060}{Pairs with support >= 0.60}
-\item{summaries_ss}{Summary statistics}
+A list with four tibbles, or \code{NULL} with a warning when no direction produced a
+result: \code{summaries_ss}, one row per direction with the selected specification \code{spec}
+(\code{"LL"} or \code{"LLT"}), \code{folds}, \code{wins}, \code{support} (\code{wins / folds}), \code{dELPD_mean},
+\code{dRMSE_mean}, \code{dMAE_mean}, \code{RMSE_base_mean}, \code{RMSE_full_mean}, \code{MAE_base_mean},
+\code{MAE_full_mean}, \code{cover80_mean}, \code{cover95_mean}, \code{Y} and \code{X}; \code{rank_ss_all}, the same rows
+with \code{pair} and \code{pass_support}, sorted by decreasing \code{support}, \code{dELPD_mean} and
+\code{dRMSE_mean}; \code{winners_ss_070} and \code{winners_ss_060}, the rows of \code{rank_ss_all} with
+\code{pass_support}, support at least \code{sup_hi} or \code{sup_lo}, and positive \code{dELPD_mean} and
+\code{dRMSE_mean}. The names \code{winners_ss_070} and \code{winners_ss_060} do not change with \code{sup_hi}
+and \code{sup_lo}.
 }
 \description{
-Implements Bayesian Structural Time Series models with Leave-Future-Out validation
-for assessing causal relationships between economic variables with temporal stability.
+Evaluates every directed pair between six circulation variables and seven production
+variables, in both directions, by comparing a structural time series model of the response
+with and without lagged values of the predictor. Each comparison is repeated over successive
+forecast windows, and a direction counts as supported in a window only when adding the
+predictor improves both the predictive density and the point forecast. Use it to rank directed
+relationships by how consistently the predictor improves out-of-sample forecasts.
 }
 \details{
-This function implements Bayesian Structural Time Series models for assessing
-causal relationships between economic variables. It uses Leave-Future-Out
-cross-validation with tuning between Local Level and Local Linear Trend
-specifications. The methodology is described in detail in the methodological
-document "DETALLES METODOLOGICOS SPACESTATE MODEL.docx".
+For each direction the predictor is lagged \code{max_lag} times and incomplete rows are dropped.
+Validation windows use an expanding training sample and a test block of \code{lfo_h}
+observations that always lies after the training sample. In each window the lags are
+standardised with the training mean and standard deviation, and two models are fitted to the
+training response with the same state specification: a model without regressors and a model
+that adds a regression on the standardised lags with a spike-and-slab prior. The prior is
+built on the design matrix including the intercept, with an expected model size equal to the
+number of columns of that matrix capped at 5, prior information weight \code{0.01} and diagonal
+shrinkage \code{0.5}.
+
+Forecasts use the posterior predictive draws after \code{burn}. For each model the window records
+the Gaussian log predictive density of the test observations given the forecast mean and
+standard deviation, RMSE, MAE and the coverage of central 80 and 95 percent Gaussian
+intervals built from the same mean and standard deviation. A
+window is a win when the model with the predictor has both higher log predictive density and
+lower RMSE. Two state specifications are evaluated, local level (\code{"LL"}) and local linear
+trend (\code{"LLT"}), each with the optional seasonal component, and the one with the highest
+\code{dELPD_mean}, then \code{support}, then \code{dRMSE_mean}, is reported for the direction.
 }
+\section{Methodological notes}{
+
+\code{support} requires improvement in probabilistic fit and in point error at the same time; a
+predictor that improves only one of them in a window does not count. The log predictive
+density is a Gaussian approximation computed from the forecast mean and standard deviation,
+not the exact predictive density of the draws. Standardising lags with training statistics
+only keeps test-window information out of the fit. Models without regressors are fitted on
+the response vector, as \code{bsts} documents for models with no regression component. Tying each
+forecast seed to the seed of its fit makes the results reproducible for a given \code{seed}; with
+a different \code{seed}, support can change, especially with few MCMC iterations.
+}
+
+\section{Dependencies}{
+
+\code{bsts} builds the state specification, runs the MCMC and produces the forecasts;
+\code{BoomSpikeSlab} builds the spike-and-slab prior. Both are suggested packages that this
+function requires; it stops with an informative message when either is missing. \code{readxl}
+reads the data; \code{dplyr}, \code{tidyr}, \code{tibble} and \code{purrr} build lags, windows and summaries;
+\code{stats} and \code{utils} provide the metrics and the CSV export.
+}
+
 \examples{
 \dontrun{
-# Example usage
 result <- bsts_model(
   data_path = file.path(tempdir(), "data.xlsx"),
   circ_vars = c("TC_SPOT_CAN_US", "TC_SPOT_US_CAN", "TC_SPOT_US_REMB",
                 "IPC", "TdI_LdelT", "TasaDescuento"),
-  prod_vars = c("ValorExportaciones", "Real_Net_Profit", 
+  prod_vars = c("ValorExportaciones", "Real_Net_Profit",
                 "RealSocialConsumptionPerWorker2017", "RealWage_PPP2017",
-                "CapitalStock_PPP2017", "LaborProductivity_PPP2017", 
+                "CapitalStock_PPP2017", "LaborProductivity_PPP2017",
                 "InvestmentPerWorker_PPP2017")
 )
 }
 
+}
+\references{
+\enc{Bürkner}{Burkner}, P.-C., Gabry, J., & Vehtari, A. (2020). Approximate leave-future-out
+cross-validation for Bayesian time series models. \emph{Journal of Statistical Computation and
+Simulation, 90}(14), 2499\enc{–}{-}2523. \doi{10.1080/00949655.2020.1783262}
+
+Scott, S. L., & Varian, H. R. (2014). Predicting the present with Bayesian structural time
+series. \emph{International Journal of Mathematical Modelling and Numerical Optimisation,
+5}(1/2), 4\enc{–}{-}23. \doi{10.1504/IJMMNO.2014.059942}
+}
+\seealso{
+\code{\link[=ecm_mars]{ecm_mars()}}, \code{\link[=bglmar1]{bglmar1()}}; the vignettes \code{bsts-eng} and \code{bsts-esp}.
 }
