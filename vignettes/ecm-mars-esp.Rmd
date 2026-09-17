@@ -278,7 +278,7 @@ Estas métricas integran desempeño predictivo con consistencia temporal, privil
 La arquitectura de paralelización opera en dos niveles:
 
 1. **Nivel de pares**: Cada combinación $(X \to Y)$ se procesa en un worker independiente
-2. **Control de BLAS**: Se fija `blas_set_num_threads(1)` para evitar sobre-suscripción del CPU
+2. **Control de BLAS**: Si `RhpcBLASctl` está instalado, BLAS y OpenMP se fijan en un hilo en la sesión de R que llama y se restauran al salir; las sesiones trabajadoras conservan su propia configuración de hilos
 
 Los workers son procesos R independientes (no threads) coordinados por `future::multisession`, cada uno con memoria propia. La semilla `future.seed=TRUE` garantiza reproducibilidad en paralelo.
 

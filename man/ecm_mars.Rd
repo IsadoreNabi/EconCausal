@@ -154,7 +154,11 @@ other metrics are averaged only over windows that passed, so they must be read t
 \code{folds_proceed}. The error-correction term uses the Engle-Granger long-run coefficients
 estimated in the training window, so no test-window information enters the forecaster.
 Parallel evaluation uses reproducible random streams (\code{future.seed = TRUE}). The function
-restores the caller's \code{future} plan and BLAS/OpenMP thread settings on exit.
+restores the caller's \code{future} plan and the BLAS/OpenMP thread settings of the calling R
+session on exit, also when it stops with an error. The thread limit applies to the calling
+session only: the parallel worker sessions are separate R processes and keep their own BLAS
+and OpenMP settings. A thread count that cannot be read (for example OpenMP when
+\code{RhpcBLASctl} was built without it) is left untouched.
 }
 
 \section{Dependencies}{
@@ -164,7 +168,7 @@ augmented Dickey-Fuller and Johansen tests; \code{vars} selects the VAR lag orde
 provides the Phillips-Ouliaris test; \code{lmtest} and \code{sandwich} give the Newey-West test of the
 error-correction coefficient; \code{earth} fits MARS; \code{future} and \code{future.apply} evaluate
 directions in parallel; \code{progressr} reports progress; \code{RhpcBLASctl}, if installed, keeps
-BLAS and OpenMP single-threaded during the evaluation.
+BLAS and OpenMP single-threaded in the calling R session during the evaluation.
 }
 
 \examples{

@@ -96,7 +96,11 @@
 #' `folds_proceed`. The error-correction term uses the Engle-Granger long-run coefficients
 #' estimated in the training window, so no test-window information enters the forecaster.
 #' Parallel evaluation uses reproducible random streams (`future.seed = TRUE`). The function
-#' restores the caller's `future` plan and BLAS/OpenMP thread settings on exit.
+#' restores the caller's `future` plan and the BLAS/OpenMP thread settings of the calling R
+#' session on exit, also when it stops with an error. The thread limit applies to the calling
+#' session only: the parallel worker sessions are separate R processes and keep their own BLAS
+#' and OpenMP settings. A thread count that cannot be read (for example OpenMP when
+#' `RhpcBLASctl` was built without it) is left untouched.
 #'
 #' @section Dependencies:
 #' `readxl` reads the data; `dplyr` orders observations and builds lags; `urca` provides the
@@ -104,7 +108,7 @@
 #' provides the Phillips-Ouliaris test; `lmtest` and `sandwich` give the Newey-West test of the
 #' error-correction coefficient; `earth` fits MARS; `future` and `future.apply` evaluate
 #' directions in parallel; `progressr` reports progress; `RhpcBLASctl`, if installed, keeps
-#' BLAS and OpenMP single-threaded during the evaluation.
+#' BLAS and OpenMP single-threaded in the calling R session during the evaluation.
 #'
 #' @references
 #' Engle, R. F., & Granger, C. W. J. (1987). Co-integration and error correction:
@@ -156,16 +160,8 @@ ecm_mars <- function(data_path, circ_vars, prod_vars, cointeg_rule = "either",
   }
   on.exit(future::plan(oplan), add = TRUE)
 
-  if (requireNamespace("RhpcBLASctl", quietly = TRUE)) {
-    old_blas_threads <- RhpcBLASctl::blas_get_num_procs()
-    old_omp_threads <- RhpcBLASctl::omp_get_max_threads()
-    on.exit({
-      RhpcBLASctl::blas_set_num_threads(old_blas_threads)
-      RhpcBLASctl::omp_set_num_threads(old_omp_threads)
-    }, add = TRUE)
-    RhpcBLASctl::blas_set_num_threads(1)
-    RhpcBLASctl::omp_set_num_threads(1)
-  }
+  restore_threads <- limit_threads()
+  on.exit(restore_threads(), add = TRUE)
 
   raw <- readxl::read_excel(data_path)
 
@@ -566,4 +562,66 @@ check_workbook_width <- function(raw, workbook_names) {
          call. = FALSE)
   }
   invisible(TRUE)
+}
+
+# Returns the BLAS and OpenMP thread controls as a list of four functions, or NULL when
+# RhpcBLASctl is not installed. It is the only place that touches RhpcBLASctl, so the tests
+# replace this binding instead of altering the namespace of another package.
+thread_controller <- function() {
+  if (!requireNamespace("RhpcBLASctl", quietly = TRUE)) {
+    return(NULL)
+  }
+  list(
+    get_blas = RhpcBLASctl::blas_get_num_procs,
+    set_blas = RhpcBLASctl::blas_set_num_threads,
+    get_omp  = RhpcBLASctl::omp_get_max_threads,
+    set_omp  = RhpcBLASctl::omp_set_num_threads
+  )
+}
+
+# TRUE for a single positive whole number, the only kind of thread count that can be restored.
+is_thread_count <- function(x) {
+  is.numeric(x) && length(x) == 1L && !is.na(x) && x >= 1 && x == round(x)
+}
+
+# Sets BLAS and OpenMP to one thread in the calling R session and returns a function that
+# restores the previous values. A channel whose previous value cannot be read as a thread count
+# (RhpcBLASctl reports NA for OpenMP when it was built without it) is neither changed nor
+# restored. The restorer of a channel is recorded before the channel is changed, so an error
+# while limiting restores what was already changed, and each channel is restored on its own,
+# so a failure in one does not prevent the other. Worker sessions started by `future` are
+# separate processes and keep their own settings.
+limit_threads <- function(controller = thread_controller()) {
+  restorers <- list()
+  restore <- function() {
+    for (channel in rev(names(restorers))) {
+      tryCatch(
+        restorers[[channel]](),
+        error = function(e) {
+          warning(sprintf("Could not restore the %s thread count: %s", channel, conditionMessage(e)),
+                  call. = FALSE)
+        }
+      )
+    }
+    invisible(NULL)
+  }
+  if (is.null(controller)) {
+    return(restore)
+  }
+  channels <- list(BLAS = c("get_blas", "set_blas"), OpenMP = c("get_omp", "set_omp"))
+  withCallingHandlers({
+    for (channel in names(channels)) {
+      previous <- controller[[channels[[channel]][1]]]()
+      if (!is_thread_count(previous)) {
+        next
+      }
+      restorers[[channel]] <- local({
+        setter <- controller[[channels[[channel]][2]]]
+        value <- previous
+        function() setter(value)
+      })
+      controller[[channels[[channel]][2]]](1L)
+    }
+  }, error = function(e) restore())
+  restore
 }

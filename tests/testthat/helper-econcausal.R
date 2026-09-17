@@ -89,3 +89,46 @@ ec_without_libraries <- function(expr) {
 ec_source_of <- function(fun) {
   paste(deparse(body(fun), width.cutoff = 500L), collapse = " ")
 }
+
+# An in-memory stand-in for the list returned by thread_controller(). It holds a
+# BLAS and an OpenMP thread count and records every call with its argument.
+# fail_next(name, applied) makes the next call of that setter fail once, either
+# before changing its count or, with `applied = TRUE`, after changing it, so the
+# tests can reach both error paths of limit_threads() deterministically.
+ec_fake_thread_controller <- function(blas, omp) {
+  state <- c(blas = blas, omp = omp)
+  calls <- character()
+  pending <- list()
+  setter <- function(name, channel) {
+    function(threads) {
+      calls[length(calls) + 1L] <<- sprintf("%s(%s)", name, threads)
+      failure <- pending[[name]]
+      pending[[name]] <<- NULL
+      if (isTRUE(failure)) {
+        state[[channel]] <<- as.integer(threads)
+      }
+      if (!is.null(failure)) {
+        stop(sprintf("%s failed", name), call. = FALSE)
+      }
+      state[[channel]] <<- as.integer(threads)
+      invisible(NULL)
+    }
+  }
+  getter <- function(name, channel) {
+    function() {
+      calls[length(calls) + 1L] <<- name
+      state[[channel]]
+    }
+  }
+  list(
+    controller = list(
+      get_blas = getter("get_blas", "blas"),
+      set_blas = setter("set_blas", "blas"),
+      get_omp  = getter("get_omp", "omp"),
+      set_omp  = setter("set_omp", "omp")
+    ),
+    state = function() state,
+    calls = function() calls,
+    fail_next = function(name, applied = FALSE) pending[[name]] <<- applied
+  )
+}

@@ -278,7 +278,7 @@ These metrics integrate predictive performance with temporal consistency, favori
 The parallelization architecture operates at two levels:
 
 1. **Pair level**: Each combination $(X \to Y)$ is processed in an independent worker
-2. **BLAS control**: `blas_set_num_threads(1)` is set to avoid CPU over-subscription
+2. **BLAS control**: when `RhpcBLASctl` is installed, BLAS and OpenMP are set to one thread in the calling R session and restored on exit; the worker sessions keep their own thread settings
 
 Workers are independent R processes (not threads) coordinated by `future::multisession`, each with its own memory. The seed `future.seed=TRUE` ensures reproducibility in parallel.
 

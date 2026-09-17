@@ -2,7 +2,7 @@ Package: EconCausal
 Type: Package
 Title: Causal Analysis for Macroeconomic Time Series (ECM-MARS, BSTS,
         Bayesian GLM-AR(1))
-Version: 1.0.3
+Version: 1.0.4
 Authors@R: 
     c(person(given = "José Mauricio", family = "Gómez Julián",
              role = c("aut", "cre"),
@@ -20,7 +20,7 @@ Imports: brms, readxl, dplyr, tidyr, tibble, purrr, tseries, urca,
         vars, earth, lmtest, sandwich, progressr, future, future.apply,
         rlang, magrittr, parallel, stats, utils
 Suggests: bsts, BoomSpikeSlab, knitr, cmdstanr, rstan, RhpcBLASctl,
-        rmarkdown, testthat (>= 3.0.0)
+        rmarkdown, testthat (>= 3.2.0)
 URL: https://github.com/IsadoreNabi/EconCausal
 BugReports: https://github.com/IsadoreNabi/EconCausal/issues
 Additional_repositories: https://stan-dev.r-universe.dev
